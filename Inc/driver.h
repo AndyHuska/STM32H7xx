@@ -139,6 +139,8 @@
   #include "boards/btt_manta_m8p_v2_map.h"
 #elif defined(BOARD_WEACT_MINI)
   #include "boards/weact_mini_map.h"
+#elif defined(BOARD_WAVESHARE_OPENH743I)
+  #include "boards/waveshare_openh743i_c_map.h"
 #elif defined(BOARD_REFERENCE)
   #include "boards/reference_map.h"
 #elif defined(BOARD_MY_MACHINE)

@@ -28,7 +28,11 @@
 #include "netif/etharp.h"
 #include "lwip/ethip6.h"
 #include "ethernetif.h"
+#if defined(ETH_PHY_DP83848) && ETH_PHY_DP83848
+#include "dp83848.h"
+#else
 #include "lan8742.h"
+#endif
 #include <string.h>
 
 /* Within 'USER CODE' section, code will be kept by default at each generation */
@@ -96,6 +100,8 @@ LWIP_MEMPOOL_DECLARE(RX_POOL, ETH_RX_BUFFER_CNT, sizeof(RxBuff_t), "Zero-copy RX
 
 /* Variable Definitions */
 static uint8_t RxAllocStatus;
+static int32_t phy_init_status = 0;
+static int32_t phy_last_link_state = 0;
 
 #if defined ( __ICCARM__ ) /*!< IAR Compiler */
 
@@ -131,12 +137,37 @@ int32_t ETH_PHY_IO_ReadReg(uint32_t DevAddr, uint32_t RegAddr, uint32_t *pRegVal
 int32_t ETH_PHY_IO_WriteReg(uint32_t DevAddr, uint32_t RegAddr, uint32_t RegVal);
 int32_t ETH_PHY_IO_GetTick(void);
 
-lan8742_Object_t LAN8742;
-lan8742_IOCtx_t  LAN8742_IOCtx = {ETH_PHY_IO_Init,
-                                  ETH_PHY_IO_DeInit,
-                                  ETH_PHY_IO_WriteReg,
-                                  ETH_PHY_IO_ReadReg,
-                                  ETH_PHY_IO_GetTick};
+#if defined(ETH_PHY_DP83848) && ETH_PHY_DP83848
+dp83848_Object_t PHYDRV;
+dp83848_IOCtx_t  PHY_IOCtx = {ETH_PHY_IO_Init,
+                              ETH_PHY_IO_DeInit,
+                              ETH_PHY_IO_WriteReg,
+                              ETH_PHY_IO_ReadReg,
+                              ETH_PHY_IO_GetTick};
+#define PHY_RegisterBusIO       DP83848_RegisterBusIO
+#define PHY_Init                DP83848_Init
+#define PHY_GetLinkState        DP83848_GetLinkState
+#define PHY_STATUS_LINK_DOWN    DP83848_STATUS_LINK_DOWN
+#define PHY_STATUS_100FD        DP83848_STATUS_100MBITS_FULLDUPLEX
+#define PHY_STATUS_100HD        DP83848_STATUS_100MBITS_HALFDUPLEX
+#define PHY_STATUS_10FD         DP83848_STATUS_10MBITS_FULLDUPLEX
+#define PHY_STATUS_10HD         DP83848_STATUS_10MBITS_HALFDUPLEX
+#else
+lan8742_Object_t PHYDRV;
+lan8742_IOCtx_t  PHY_IOCtx = {ETH_PHY_IO_Init,
+                              ETH_PHY_IO_DeInit,
+                              ETH_PHY_IO_WriteReg,
+                              ETH_PHY_IO_ReadReg,
+                              ETH_PHY_IO_GetTick};
+#define PHY_RegisterBusIO       LAN8742_RegisterBusIO
+#define PHY_Init                LAN8742_Init
+#define PHY_GetLinkState        LAN8742_GetLinkState
+#define PHY_STATUS_LINK_DOWN    LAN8742_STATUS_LINK_DOWN
+#define PHY_STATUS_100FD        LAN8742_STATUS_100MBITS_FULLDUPLEX
+#define PHY_STATUS_100HD        LAN8742_STATUS_100MBITS_HALFDUPLEX
+#define PHY_STATUS_10FD         LAN8742_STATUS_10MBITS_FULLDUPLEX
+#define PHY_STATUS_10HD         LAN8742_STATUS_10MBITS_HALFDUPLEX
+#endif
 
 /* USER CODE BEGIN 3 */
 
@@ -234,10 +265,11 @@ static void low_level_init(struct netif *netif)
 
 /* USER CODE END PHY_PRE_CONFIG */
   /* Set PHY IO functions */
-  LAN8742_RegisterBusIO(&LAN8742, &LAN8742_IOCtx);
+  phy_init_status = PHY_RegisterBusIO(&PHYDRV, &PHY_IOCtx);
 
-  /* Initialize the LAN8742 ETH PHY */
-  LAN8742_Init(&LAN8742);
+  /* Initialize the selected ETH PHY */
+  if(phy_init_status == 0)
+    phy_init_status = PHY_Init(&PHYDRV);
 
   if (hal_eth_init_status == HAL_OK)
   {
@@ -552,34 +584,35 @@ void ethernet_link_check_state(struct netif *netif)
   int32_t PHYLinkState = 0;
   uint32_t linkchanged = 0U, speed = 0U, duplex = 0U;
 
-  PHYLinkState = LAN8742_GetLinkState(&LAN8742);
+  PHYLinkState = PHY_GetLinkState(&PHYDRV);
+  phy_last_link_state = PHYLinkState;
 
-  if(netif_is_link_up(netif) && (PHYLinkState <= LAN8742_STATUS_LINK_DOWN))
+  if(netif_is_link_up(netif) && (PHYLinkState <= PHY_STATUS_LINK_DOWN))
   {
     HAL_ETH_Stop(&heth);
     netif_set_down(netif);
     netif_set_link_down(netif);
   }
-  else if(!netif_is_link_up(netif) && (PHYLinkState > LAN8742_STATUS_LINK_DOWN))
+  else if(!netif_is_link_up(netif) && (PHYLinkState > PHY_STATUS_LINK_DOWN))
   {
     switch (PHYLinkState)
     {
-    case LAN8742_STATUS_100MBITS_FULLDUPLEX:
+    case PHY_STATUS_100FD:
       duplex = ETH_FULLDUPLEX_MODE;
       speed = ETH_SPEED_100M;
       linkchanged = 1;
       break;
-    case LAN8742_STATUS_100MBITS_HALFDUPLEX:
+    case PHY_STATUS_100HD:
       duplex = ETH_HALFDUPLEX_MODE;
       speed = ETH_SPEED_100M;
       linkchanged = 1;
       break;
-    case LAN8742_STATUS_10MBITS_FULLDUPLEX:
+    case PHY_STATUS_10FD:
       duplex = ETH_FULLDUPLEX_MODE;
       speed = ETH_SPEED_10M;
       linkchanged = 1;
       break;
-    case LAN8742_STATUS_10MBITS_HALFDUPLEX:
+    case PHY_STATUS_10HD:
       duplex = ETH_HALFDUPLEX_MODE;
       speed = ETH_SPEED_10M;
       linkchanged = 1;
@@ -601,6 +634,16 @@ void ethernet_link_check_state(struct netif *netif)
     }
   }
 
+}
+
+int32_t ethernet_phy_init_status(void)
+{
+  return phy_init_status;
+}
+
+int32_t ethernet_phy_link_state(void)
+{
+  return phy_last_link_state;
 }
 
 void HAL_ETH_RxAllocateCallback(uint8_t **buff)

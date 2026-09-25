@@ -180,7 +180,7 @@ void SystemClock_Config(void)
 
 #if defined(STM32H743xx)
 
-#if defined(NUCLEO_H743) // Nucleo H743 dev board with 8MHz clock source
+#if defined(NUCLEO_H743) || defined(BOARD_WAVESHARE_OPENH743I) // Nucleo H743 dev board with 8MHz clock source
 #define FLASH_LATENCY FLASH_LATENCY_4
 
 #if RTC_ENABLE

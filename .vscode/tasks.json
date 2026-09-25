@@ -1,0 +1,45 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "PIO: Build Waveshare OpenH743I-C",
+			"type": "shell",
+			"command": "C:/Users/Andy/.platformio/penv/Scripts/platformio.exe",
+			"args": [
+				"run",
+				"-j",
+				"${env:NUMBER_OF_PROCESSORS}",
+				"-e",
+				"waveshare_openh743i_c"
+			],
+			"group": "build"
+		},
+		{
+			"label": "PIO: Flash Waveshare OpenH743I-C (STLink)",
+			"type": "shell",
+			"command": "C:/Users/Andy/.platformio/penv/Scripts/platformio.exe",
+			"args": [
+				"run",
+				"-j",
+				"${env:NUMBER_OF_PROCESSORS}",
+				"-e",
+				"waveshare_openh743i_c",
+				"-t",
+				"upload"
+			],
+			"group": "none"
+		},
+		{
+			"label": "PIO: Build+Flash Waveshare OpenH743I-C (STLink)",
+			"dependsOn": [
+				"PIO: Build Waveshare OpenH743I-C",
+				"PIO: Flash Waveshare OpenH743I-C (STLink)"
+			],
+			"dependsOrder": "sequence",
+			"group": {
+				"kind": "build",
+				"isDefault": true
+			}
+		}
+	]
+}

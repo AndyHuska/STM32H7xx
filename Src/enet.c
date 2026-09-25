@@ -32,7 +32,7 @@
 #include "lwip/dhcp.h"
 #include "lwip.h"
 #include "lwip/init.h"
-#include "ethernetif.h"
+#include "LWIP/Target/ethernetif.h"
 
 #if TCP_ECHOSERVER_ENABLE
 #include "tcp_echoserver.h"
@@ -144,6 +144,20 @@ static void report_options (bool newopt)
             hal.stream.write("[IP:");
             hal.stream.write(network->status.ip);
             hal.stream.write("]" ASCII_EOL);
+
+            {
+                char diag[96];
+                struct netif *netif = netif_default;
+                const char *ipmode = network->status.ip_mode == IpMode_Static ? "static" :
+                                     (network->status.ip_mode == IpMode_DHCP ? "dhcp" : "auto");
+                sprintf(diag, "[ETHDBG:LINK=%s,IPMODE=%s,PHYINIT=%ld,PHYSTATE=%ld,NETIF=%s]" ASCII_EOL,
+                        network_status.link_up ? "up" : "down",
+                        ipmode,
+                        (long)ethernet_phy_init_status(),
+                        (long)ethernet_phy_link_state(),
+                        (netif && netif_is_up(netif)) ? "up" : "down");
+                hal.stream.write(diag);
+            }
 
             if(active_stream == StreamType_Telnet || active_stream == StreamType_WebSocket) {
                 hal.stream.write("[NETCON:");
@@ -791,6 +805,36 @@ void HAL_ETH_MspInit(ETH_HandleTypeDef* ethHandle)
     GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
     GPIO_InitStruct.Alternate = GPIO_AF11_ETH;
     HAL_GPIO_Init(GPIOG, &GPIO_InitStruct);
+#elif ETH_PINOUT == 3 // Waveshare OpenH743I-C
+
+                        /*
+                        PA1  -> ETH_REF_CLK
+                        PA2  -> ETH_MDIO
+                        PA7  -> ETH_CRS_DV
+                        PC1  -> ETH_MDC
+                        PC4  -> ETH_RXD0
+                        PC5  -> ETH_RXD1
+                        PB11 -> ETH_TX_EN
+                        PG13 -> ETH_TXD0
+                        PG14 -> ETH_TXD1
+                        */
+
+                        GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
+    GPIO_InitStruct.Pull = GPIO_NOPULL;
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
+    GPIO_InitStruct.Alternate = GPIO_AF11_ETH;
+
+    GPIO_InitStruct.Pin = GPIO_PIN_1 | GPIO_PIN_2 | GPIO_PIN_7;
+    HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+    GPIO_InitStruct.Pin = GPIO_PIN_11;
+    HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+    GPIO_InitStruct.Pin = GPIO_PIN_1 | GPIO_PIN_4 | GPIO_PIN_5;
+    HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+
+    GPIO_InitStruct.Pin = GPIO_PIN_13 | GPIO_PIN_14;
+    HAL_GPIO_Init(GPIOG, &GPIO_InitStruct);
 
 #else
   #error Ethernet pinout must be defined.
@@ -819,7 +863,13 @@ void HAL_ETH_MspDeInit(ETH_HandleTypeDef* ethHandle)
 
     HAL_GPIO_DeInit(GPIOA, GPIO_PIN_1|GPIO_PIN_2|GPIO_PIN_7);
     HAL_GPIO_DeInit(GPIOC, GPIO_PIN_1|GPIO_PIN_4|GPIO_PIN_5);
-    HAL_GPIO_DeInit(GPIOG, GPIO_PIN_11|GPIO_PIN_12|GPIO_PIN_13);
+    HAL_GPIO_DeInit(GPIOG, GPIO_PIN_11 | GPIO_PIN_12 | GPIO_PIN_13);
+#elif ETH_PINOUT == 3
+
+        HAL_GPIO_DeInit(GPIOA, GPIO_PIN_1 | GPIO_PIN_2 | GPIO_PIN_7);
+    HAL_GPIO_DeInit(GPIOB, GPIO_PIN_11);
+    HAL_GPIO_DeInit(GPIOC, GPIO_PIN_1 | GPIO_PIN_4 | GPIO_PIN_5);
+    HAL_GPIO_DeInit(GPIOG, GPIO_PIN_13 | GPIO_PIN_14);
 
 #endif
 

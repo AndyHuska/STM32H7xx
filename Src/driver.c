@@ -407,6 +407,12 @@ static output_signal_t outputpin[] = {
 #ifdef AUXOUTPUT10_PORT
     { .id = Output_Aux10,              .port = AUXOUTPUT10_PORT,       .pin = AUXOUTPUT10_PIN,       .group = PinGroup_AuxOutput },
 #endif
+#ifdef AUXOUTPUT11_PORT
+    { .id = Output_Aux11,              .port = AUXOUTPUT11_PORT,       .pin = AUXOUTPUT11_PIN,       .group = PinGroup_AuxOutput },
+#endif
+#ifdef AUXOUTPUT12_PORT
+    { .id = Output_Aux12,              .port = AUXOUTPUT12_PORT,       .pin = AUXOUTPUT12_PIN,       .group = PinGroup_AuxOutput },
+#endif
 #ifdef AUXOUTPUT0_ANALOG_PORT
     { .id = Output_Analog_Aux0,     .port = AUXOUTPUT0_ANALOG_PORT, .pin = AUXOUTPUT0_ANALOG_PIN,    .group = PinGroup_AuxOutputAnalog },
 #elif defined(AUXOUTPUT0_PWM_PORT)

@@ -5,6 +5,7 @@ This is a port of [grblHAL](https://www.github.com/grblhAL) for the STM32H7xx se
 ## Supported boards
 - [Nucleo-H743ZI](https://www.st.com/en/evaluation-tools/nucleo-h743zi.html)
 - [Nucleo-H723ZG](https://www.st.com/en/evaluation-tools/nucleo-h723zg.html)
+- [Waveshare OpenH743I-C with CoreH743I](https://www.waveshare.com/wiki/OpenH743I-C)
 - [WeAct MiniSTM32H7xx  (H743 & H723)](https://github.com/WeActTC/MiniSTM32H7xx)
 - [BTT SKR 3 EZ (H743 & H723)](https://www.biqu.equipment/products/bigtreetech-btt-skr-3-ez-control-board-mainboard-for-3d-printer)
 - [BTT Octopus Max EZ](https://biqu.equipment/products/bigtreetech-btt-octopusmax-ez-for-3d-printer)
