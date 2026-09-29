@@ -1,3 +1,4 @@
+// Standard digital AUX outputs and separately named MOSFET PWM outputs.
 /*
   waveshare_openh743i_c_map.h - driver code for CoreH7XXI and OpenH7XXI-C board combo
 
@@ -160,29 +161,49 @@
 #endif
 
 // Define AUX outputs.
-// AUXOUTPUT0..AUXOUTPUT7 are reserved for the H743 MOSFET PWM plugin channels.
-
-#define AUXOUTPUT0_PORT         GPIOB // MOSFET PWM 0
-#define AUXOUTPUT0_PIN          11
-#define AUXOUTPUT1_PORT         GPIOE // MOSFET PWM 1
-#define AUXOUTPUT1_PIN          2
-#define AUXOUTPUT2_PORT         GPIOF // MOSFET PWM 2
-#define AUXOUTPUT2_PIN          0
-#define AUXOUTPUT3_PORT         GPIOA // MOSFET PWM 3
-#define AUXOUTPUT3_PIN          5
-#define AUXOUTPUT4_PORT         GPIOB // MOSFET PWM 4
-#define AUXOUTPUT4_PIN          0
+#if defined(H743_MOSFET_PWM_ENABLE) && H743_MOSFET_PWM_ENABLE
+#define PWMOUTPUT0_PORT         GPIOB
+#define PWMOUTPUT0_PIN          11
+#define PWMOUTPUT1_PORT         GPIOE
+#define PWMOUTPUT1_PIN          2
+#define PWMOUTPUT2_PORT         GPIOF
+#define PWMOUTPUT2_PIN          0
+#define PWMOUTPUT3_PORT         GPIOA
+#define PWMOUTPUT3_PIN          5
+#define PWMOUTPUT4_PORT         GPIOB
+#define PWMOUTPUT4_PIN          0
+#define PWMOUTPUT5_PORT         GPIOA
 #if DRIVER_SPINDLE_ENABLE & SPINDLE_PWM
-#define AUXOUTPUT5_PORT         GPIOA // MOSFET PWM 5
+#define PWMOUTPUT5_PIN          15
+#else
+#define PWMOUTPUT5_PIN          6
+#endif
+#define PWMOUTPUT6_PORT         GPIOE
+#define PWMOUTPUT6_PIN          0
+#define PWMOUTPUT7_PORT         GPIOF
+#define PWMOUTPUT7_PIN          5
+#else
+#define AUXOUTPUT0_PORT         GPIOB
+#define AUXOUTPUT0_PIN          11
+#define AUXOUTPUT1_PORT         GPIOE
+#define AUXOUTPUT1_PIN          2
+#define AUXOUTPUT2_PORT         GPIOF
+#define AUXOUTPUT2_PIN          0
+#define AUXOUTPUT3_PORT         GPIOA
+#define AUXOUTPUT3_PIN          5
+#define AUXOUTPUT4_PORT         GPIOB
+#define AUXOUTPUT4_PIN          0
+#define AUXOUTPUT5_PORT         GPIOA
+#if DRIVER_SPINDLE_ENABLE & SPINDLE_PWM
 #define AUXOUTPUT5_PIN          15
 #else
-#define AUXOUTPUT5_PORT         GPIOA // MOSFET PWM 5
 #define AUXOUTPUT5_PIN          6
 #endif
-#define AUXOUTPUT6_PORT         GPIOE // MOSFET PWM 6
+#define AUXOUTPUT6_PORT         GPIOE
 #define AUXOUTPUT6_PIN          0
-#define AUXOUTPUT7_PORT         GPIOF // MOSFET PWM 7
+#define AUXOUTPUT7_PORT         GPIOF
 #define AUXOUTPUT7_PIN          5
+#endif
 #ifdef REFERENCE_MAP_DISABLE_SERIAL1
 #define AUXOUTPUT8_PORT         GPIOB // LED 0
 #define AUXOUTPUT8_PIN          6

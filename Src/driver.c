@@ -421,7 +421,31 @@ static output_signal_t outputpin[] = {
 #ifdef AUXOUTPUT1_ANALOG_PORT
     { .id = Output_Analog_Aux1,     .port = AUXOUTPUT1_ANALOG_PORT, .pin = AUXOUTPUT1_ANALOG_PIN,    .group = PinGroup_AuxOutputAnalog },
 #elif defined(AUXOUTPUT1_PWM_PORT)
-    { .id = Output_Analog_Aux1,     .port = AUXOUTPUT1_PWM_PORT,    .pin = AUXOUTPUT1_PWM_PIN,       .group = PinGroup_AuxOutputAnalog, .mode = { PINMODE_PWM } }
+    { .id = Output_Analog_Aux1,     .port = AUXOUTPUT1_PWM_PORT,    .pin = AUXOUTPUT1_PWM_PIN,       .group = PinGroup_AuxOutputAnalog, .mode = { PINMODE_PWM } },
+#endif
+#ifdef PWMOUTPUT0_PORT
+    { .id = Output_Analog_Aux0,  .port = PWMOUTPUT0_PORT, .pin = PWMOUTPUT0_PIN, .group = PinGroup_AuxOutputAnalog, .mode = { PINMODE_PWM } },
+#endif
+#ifdef PWMOUTPUT1_PORT
+    { .id = Output_Analog_Aux1,  .port = PWMOUTPUT1_PORT, .pin = PWMOUTPUT1_PIN, .group = PinGroup_AuxOutputAnalog, .mode = { PINMODE_PWM } },
+#endif
+#ifdef PWMOUTPUT2_PORT
+    { .id = Output_Analog_Aux2,  .port = PWMOUTPUT2_PORT, .pin = PWMOUTPUT2_PIN, .group = PinGroup_AuxOutputAnalog, .mode = { PINMODE_PWM } },
+#endif
+#ifdef PWMOUTPUT3_PORT
+    { .id = Output_Analog_Aux3,  .port = PWMOUTPUT3_PORT, .pin = PWMOUTPUT3_PIN, .group = PinGroup_AuxOutputAnalog, .mode = { PINMODE_PWM } },
+#endif
+#ifdef PWMOUTPUT4_PORT
+    { .id = Output_Analog_Aux4,  .port = PWMOUTPUT4_PORT, .pin = PWMOUTPUT4_PIN, .group = PinGroup_AuxOutputAnalog, .mode = { PINMODE_PWM } },
+#endif
+#ifdef PWMOUTPUT5_PORT
+    { .id = Output_Analog_Aux5,  .port = PWMOUTPUT5_PORT, .pin = PWMOUTPUT5_PIN, .group = PinGroup_AuxOutputAnalog, .mode = { PINMODE_PWM } },
+#endif
+#ifdef PWMOUTPUT6_PORT
+    { .id = Output_Analog_Aux6,  .port = PWMOUTPUT6_PORT, .pin = PWMOUTPUT6_PIN, .group = PinGroup_AuxOutputAnalog, .mode = { PINMODE_PWM } },
+#endif
+#ifdef PWMOUTPUT7_PORT
+    { .id = Output_Analog_Aux7,  .port = PWMOUTPUT7_PORT, .pin = PWMOUTPUT7_PIN, .group = PinGroup_AuxOutputAnalog, .mode = { PINMODE_PWM } },
 #endif
 };
 

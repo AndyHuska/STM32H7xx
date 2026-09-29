@@ -29,6 +29,12 @@
 #include "usbd_cdc_if.h"
 #include "usb_device.h"
 
+#ifdef STM32H723xx
+extern USBD_HandleTypeDef hUsbDeviceHS;
+#else
+extern USBD_HandleTypeDef hUsbDeviceFS;
+#endif
+
 #include "usb_serial.h"
 #include "../grbl/grbl.h"
 #include "../grbl/protocol.h"
@@ -42,6 +48,26 @@ volatile usb_linestate_t usb_linestate = {0};
 static bool is_connected (void)
 {
     return usb_linestate.pin.dtr && hal.get_elapsed_ticks() - usb_linestate.timestamp >= 15;
+}
+
+static bool usb_tx_ready (void)
+{
+#ifdef STM32H723xx
+    return is_connected() && hUsbDeviceHS.dev_state == USBD_STATE_CONFIGURED && hUsbDeviceHS.pClassData != NULL;
+#else
+    return is_connected() && hUsbDeviceFS.dev_state == USBD_STATE_CONFIGURED && hUsbDeviceFS.pClassData != NULL;
+#endif
+}
+
+static bool usb_tx_blocking (void)
+{
+    return usb_tx_ready() && hal.stream_blocking_callback();
+}
+
+static void usb_tx_discard (void)
+{
+    txbuf.s = txbuf.use_tx2data ? txbuf.data2 : txbuf.data;
+    txbuf.length = 0;
 }
 
 //
@@ -78,6 +104,11 @@ static inline bool usb_write (void)
 {
     static uint8_t dummy = 0;
 
+    if(!usb_tx_ready()) {
+        usb_tx_discard();
+        return true;
+    }
+
     txbuf.s = txbuf.use_tx2data ? txbuf.data2 : txbuf.data;
 
 #ifdef STM32H723xx
@@ -85,8 +116,10 @@ static inline bool usb_write (void)
 #else
     while(CDC_Transmit_FS((uint8_t *)txbuf.s, txbuf.length) == USBD_BUSY) {
 #endif
-        if(!hal.stream_blocking_callback())
+        if(!usb_tx_blocking()) {
+            usb_tx_discard();
             return false;
+        }
     }
 
     if(txbuf.length % 64 == 0) {
@@ -95,8 +128,10 @@ static inline bool usb_write (void)
 #else
         while(CDC_Transmit_FS(&dummy, 0) == USBD_BUSY) {
 #endif
-            if(!hal.stream_blocking_callback())
+            if(!usb_tx_blocking()) {
+                usb_tx_discard();
                 return false;
+            }
         }
     }
 
@@ -114,6 +149,9 @@ static bool usbPutC (const uint8_t c)
 {
     static uint8_t buf[1];
 
+    if(!usb_tx_ready())
+        return false;
+
     *buf = c;
 
 #ifdef STM32H723xx
@@ -121,7 +159,7 @@ static bool usbPutC (const uint8_t c)
 #else
     while(CDC_Transmit_FS(buf, 1) == USBD_BUSY) {
 #endif
-        if(!hal.stream_blocking_callback())
+        if(!usb_tx_blocking())
             return false;
     }
 
@@ -134,6 +172,11 @@ static bool usbPutC (const uint8_t c)
 //
 static void usbWriteS (const char *s)
 {
+    if(!usb_tx_ready()) {
+        usb_tx_discard();
+        return;
+    }
+
     size_t length = strlen(s);
 
     if(length == 0)
@@ -167,6 +210,11 @@ static void usbWriteS (const char *s)
 //
 static void usbWrite (const uint8_t *s, uint16_t length)
 {
+    if(!usb_tx_ready()) {
+        usb_tx_discard();
+        return;
+    }
+
     if(length == 0)
         return;
 
