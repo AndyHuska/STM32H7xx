@@ -5,8 +5,38 @@ Reproduction harness: `tools/jerk_sim/jerk_sim.py`. It is a float32 port of the 
 - `--fixed` runs the patched decel
 - `--recalc` injects `st_update_plan_block_parameters()` mid block
 - `--nojerk` runs with jerk disabled
+- Sweep (no `--moves`) runs in parallel: `--steps=40,80,400,800` (default), `--jerk-only`, `--snapcfg` (list worst snaps). It writes `result_orig.json` / `result_fixed.json` including per-run snaps.
+- `snap_compare.py` compares the two result files.
 
 Units inside grbl are mm, mm/min, mm/min², mm/min³ and min.
+
+## Speed-snap characterization (simulator, 4,860 jerk-on runs per variant)
+**Metric:** jump in the *executed* step rate between consecutive segments that exceeds `Amax × segment spacing + one step of rate quantization`. With jerk off this flags 0 of 4,860 runs, so it does not trigger on normal quantization.
+
+| | Original | Fixed |
+|---|---|---|
+| Runs with snaps | 1,064 | 1,498 |
+| Block-end snaps (drop to exit speed) | 2,137 | 2,862 |
+| Accel-end snaps (`acc_end`, #2, code unchanged) | ~550 | ~550 |
+| "Rise" snaps (stepper ahead of plan) | 6 | 6 |
+| Typical snap size | p50 2–3 mm/s, p95 ≈ 8 mm/s, max 14 mm/s | p50 2–3 mm/s, p95 ≈ 8 mm/s, max 13 mm/s |
+| Snap size vs. feed | p95 ≈ 19 %, max 38 % | p95 ≈ 19 %, max 38 % |
+
+- **Size vs. the per-segment acceleration limit:** worst snap per run in the fixed code is p50 5.6×, p95 64× what one segment of max acceleration allows. Only 7 % are within 1×.
+- **Not discrete-step noise:** these snaps are 2–50× larger than the one-segment acceleration limit, so they are worse than plain constant acceleration.
+- **Direction:** almost all are drops — the stepper reaches block end too fast. That is #1: the planner budgets too little distance for the S-curve when Δv < programmed rate (triangle profiles, short blocks, collinear deceleration).
+- **The fix moved results around:**
+  - 308 crawl runs became snap runs.
+  - 359 clean runs became snap runs. Checked cases: both versions are late at full deceleration, and the residual speed just crosses the quantization threshold. Example: 40 steps/mm, 8.15 vs 8.5 mm/s.
+  - The crawl was hiding many snaps: the old code ran out of speed early instead of arriving late.
+- **Rejected tweak:** planning at full jerk when behind, instead of 0.9·J. Snap runs only fell 1,498 → 1,443, while crawls rose 41 → 353 (worst 26 s). Keep `JERK_PLAN_FACTOR` 0.9.
+- **Fix direction:** #1 (planner uses the exact S-curve distance) removes the cause of the block-end snaps. #2 removes the accel-end snaps. Re-run `snap_compare.py` afterwards; the target is "rise/drop beyond 1× Amax·dt ≈ 0".
+
+## Low steps/mm (40, 80) results
+- No new failure mode; step errors 0.
+- **Crawl flag:** 41 of 4,860 fixed runs exceed the >100 ms final-segment threshold. Most (34) are at 40 steps/mm with jerk 50 mm/s³. These are physically correct jerk-limited tails: covering the last 1–2 steps (0.025–0.05 mm) from rest at J = 50 takes `(6·d/J)^(1/3)` ≈ 140–180 ms. Example `-20,-5 1200 100 50 40 1000`: 149 ms for 2 steps. The rest are the #10 REV residual (J = 10000 at 100 ticks/s).
+- **Snaps:** 40 steps/mm has fewer snaps (169 of 1,215 runs) than 800 steps/mm (614 of 1,215). Coarse steps raise the quantization threshold and hide smaller snaps.
+- The crawl metric should be made jerk-aware (compare the final segment with `(6·d/J)^(1/3)`) before tightening it further.
 
 ## FIXED – terminal crawl (for reference)
 `grbl/stepper.c`, `Ramp_Decel` jerk branch, now `jerk_decel_target()`.
@@ -80,3 +110,21 @@ Units inside grbl are mm, mm/min, mm/min², mm/min³ and min.
 ## 12. CPU cost of the fix
 - `jerk_decel_target()` runs up to 20 bisection iterations (≈ 40 flops each) per decel segment. That is fine on H7, but worth checking on FPU-less targets or at very high `ACCELERATION_TICKS_PER_SECOND`.
 - A closed-form or Newton solve would cut this.
+
+# Potential issues – other
+
+## 13. `G64 P!` stops motion and the controller stops replying (no hard fault)
+- **Observed:** sending `G64 P!` immediately stopped motion. After that, the controller no longer replied to commands. It did not hard fault.
+- **What the parser sees:** `!` is the legacy feed-hold realtime character. `protocol.c` removes it and raises `EXEC_FEED_HOLD`, so the parser receives `G64P`. `P` has no value, so the generic word reader rejects the block (`ngc_read_real_value()` → `Status_ExpressionSyntaxError`) before any `G64` code runs.
+- **Motion stopping is expected**, since a feed hold was requested. Losing replies is not.
+- **Suspects:**
+  - **Flush during hold:** the rejected block's error cleanup (`gc_at_exit()`) flushes a held `G64` move through `mc_line()`. With the controller in HOLD and the planner full, `mc_line()` may wait for buffer space that never frees, so the parser stays blocked.
+  - **Hold never released:** HOLD waits for cycle start (`~`). Check whether `~` recovers it and whether `?` still gets a status reply.
+  - **Error state blocks later lines:** with `COMPATIBILITY_LEVEL 0`, `protocol.c` only runs later g-code while `gc_state.last_error` is OK (or tool-change pending). Check how a parse error interacts with this.
+- **Isolation tests:**
+  - `G64 P` with no `!`
+  - `G4 P`
+  - `!` alone while idle
+  - `G64 P!` right after reset, with no prior moves
+  - `G64 P!` during a `G64` move stream
+- **Note:** this is likely not specific to `G64`. Any line containing `!` triggers a feed hold, and any word with no value takes the same error path.

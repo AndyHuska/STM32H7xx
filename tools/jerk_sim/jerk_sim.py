@@ -110,6 +110,7 @@ def prep_segment(p, b, DT):
     minimum_mm = max(F(0), mm_remaining - p.req_mm_increment)
     J = b.jerk
     term = False
+    acc_end = False
     while True:
         rt = p.ramp_type
         if rt == RAMP_DECEL_OVR:
@@ -137,6 +138,7 @@ def prep_segment(p, b, DT):
                 speed_var = b.acceleration * time_var
             mm_remaining -= time_var * (p.current_speed + F(0.5) * speed_var)
             if mm_remaining < p.accelerate_until:
+                acc_end = True
                 mm_remaining = p.accelerate_until
                 time_var = F(2) * (b.millimeters - mm_remaining) / (p.current_speed + p.maximum_speed)
                 p.ramp_type = RAMP_DECEL if mm_remaining == p.decelerate_after else RAMP_CRUISE
@@ -202,7 +204,7 @@ def prep_segment(p, b, DT):
     inv_rate = dt_tot / (F(p.steps_remaining) - sdr) if p.steps_remaining - sdr > 0 else F(0)
     seg = dict(mm=float(b.millimeters), mm_after=float(mm_remaining), v=float(p.current_speed),
                a=float(p.last_accel), ramp=RNAME[p.ramp_type], dt=float(dt), n=n_step,
-               inv_rate=float(inv_rate), term=term)
+               inv_rate=float(inv_rate), term=term, acc_end=acc_end)
     b.millimeters = mm_remaining
     p.steps_remaining = nrem
     p.dt_remainder = (F(nrem) - sdr) * inv_rate
@@ -223,6 +225,7 @@ def decel_profile_distance(v, a, ve, ap, J):
 
 
 JERK_PLAN = F(next((a.split('=')[1] for a in sys.argv if a.startswith('--jp=')), 0.9))
+BEHIND_FULLJ = '--behind-fullj' in sys.argv
 
 
 def decel_target(p, J, Amax, d, dt):
@@ -230,6 +233,11 @@ def decel_target(p, J, Amax, d, dt):
     v, a, ve = p.current_speed, p.last_accel, p.exit_speed
     Jp = J * JERK_PLAN
     dv = v - ve
+    if BEHIND_FULLJ and dv > F(0) and d > F(0) and dv - F(0.5) * a * a / J > F(0):
+        # behind schedule: margin would only make it later, plan at full jerk
+        hiJ = min(Amax, np.sqrt(J * dv + F(0.5) * a * a))
+        if decel_profile_distance(v, a, ve, hiJ, J) >= d:
+            Jp = J
     if dv <= F(0) or d <= F(0):
         target = F(0)
     elif dv - F(0.5) * a * a / Jp <= a * dt:
@@ -283,6 +291,7 @@ def run(blocks, steps_mm, ticks, jerk=True, recalc_at=None, feed_ovr=1.0, log=Fa
     p.maximum_speed = F(0)
     worst = dict(max_dt=0.0, crawl_mm=0.0, max_vjump=0.0, steps_err=0)
     total_t = 0.0
+    executed = []  # (rate mm/s, duration s, n_step, tags) of each executed segment
     for bi, b in enumerate(blocks):
         p.steps_per_mm = F(b.step_event_count) / b.millimeters
         p.steps_remaining = b.step_event_count
@@ -299,6 +308,16 @@ def run(blocks, steps_mm, ticks, jerk=True, recalc_at=None, feed_ovr=1.0, log=Fa
                 b.entry_speed_sqr = p.current_speed * p.current_speed
                 compute_profile(p, b, exit_sqr)
             seg = prep_segment(p, b, DT)
+            if seg['n'] > 0:
+                tags = set()
+                if si == 0 and bi > 0:
+                    tags.add('junction')
+                if seg['acc_end']:
+                    tags.add('acc_end')
+                if seg['term']:
+                    tags.add('blk_end')
+                executed.append((1.0 / (seg['inv_rate'] * float(p.steps_per_mm)) / 60.0,
+                                 seg['n'] * seg['inv_rate'] * 60.0, seg['n'], tags, float(b.max_acceleration) / 3600.0))
             steps_done += seg['n']
             total_t += seg['dt']
             worst['max_dt'] = max(worst['max_dt'], seg['dt'] * 60.0)
@@ -324,7 +343,25 @@ def run(blocks, steps_mm, ticks, jerk=True, recalc_at=None, feed_ovr=1.0, log=Fa
         if steps_done != b.step_event_count:
             worst['steps_err'] += 1
     worst['time'] = total_t * 60.0
+    worst['snaps'] = snap_analysis(executed)
     return worst
+
+
+def snap_analysis(executed):
+    """Step-rate discontinuities between consecutive executed segments, beyond what max
+    acceleration over the segment spacing plus one step of quantization can explain."""
+    seq = [(0.0, 0.0, 1, {'start'}, executed[0][4])] + executed + [(0.0, 0.0, 1, {'stop'}, executed[-1][4])]
+    snaps = []
+    for (r0, d0, n0, t0, A0), (r1, d1, n1, t1, A1) in zip(seq, seq[1:]):
+        span = 0.5 * (d0 + d1)
+        dr = abs(r1 - r0)
+        q = max(r0 / n0, r1 / n1)  # one step per segment of rate resolution
+        excess = dr - max(A0, A1) * span - q
+        if excess > 0.0:
+            where = (t0 | t1) - {'start', 'stop'} if (t0 | t1) - {'start', 'stop'} else (t0 | t1)
+            snaps.append(dict(dv=dr, sdv=r1 - r0, r0=r0, excess=excess, q=q, ratio=dr / span / max(A0, A1) if span > 0 else float('inf'),
+                              where='+'.join(sorted(where)) or 'mid'))
+    return snaps
 
 
 def z_moves(dists, feed, acc, jerk_v, steps_mm, jerk=True, junction=None):
@@ -332,6 +369,26 @@ def z_moves(dists, feed, acc, jerk_v, steps_mm, jerk=True, junction=None):
     js = [F(0)] + [F(1e38) if (dists[i] > 0) == (dists[i - 1] > 0) else F(0) for i in range(1, len(dists))]
     plan(bl, js)
     return bl
+
+
+CASES = {'A': lambda d: [-d], 'B': lambda d: [-d, -min(5.0, d)], 'B2': lambda d: [-d, -0.5 * d],
+         'B3': lambda d: [-d, -d, -0.3 * d], 'REV': lambda d: [-d, d, -d]}
+
+
+def run_cfg(cfg):
+    steps_mm, ticks, acc, jk, feed, dist, case, jerk_on, rc = cfg
+    r = run(z_moves(CASES[case](dist), feed, acc, jk, steps_mm, jerk_on), steps_mm, ticks, jerk=jerk_on, recalc_at=rc)
+    return dict(r, cfg=cfg)
+
+
+CASES = {'A': lambda d: [-d], 'B': lambda d: [-d, -min(5.0, d)], 'B2': lambda d: [-d, -0.5 * d],
+         'B3': lambda d: [-d, -d, -0.3 * d], 'REV': lambda d: [-d, d, -d]}
+
+
+def run_cfg(cfg):
+    steps_mm, ticks, acc, jk, feed, dist, case, jerk_on, rc = cfg
+    r = run(z_moves(CASES[case](dist), feed, acc, jk, steps_mm, jerk_on), steps_mm, ticks, jerk=jerk_on, recalc_at=rc)
+    return dict(r, cfg=cfg)
 
 
 def two_short(d1, d2, feed, acc, jk, steps_mm, ticks, log=False, jerk=True):
@@ -361,23 +418,20 @@ if __name__ == '__main__' and '--moves' in sys.argv:
     sys.exit()
 
 if __name__ == '__main__':
+    import itertools
+    from multiprocessing import Pool
     print('FIXED' if FIXED else 'ORIGINAL')
-    rows = []
-    cases = {'A': lambda d: [-d], 'B': lambda d: [-d, -min(5.0, d)], 'B2': lambda d: [-d, -0.5 * d],
-             'B3': lambda d: [-d, -d, -0.3 * d], 'REV': lambda d: [-d, d, -d]}
-    for steps_mm in (400.0, 800.0):
-        for ticks in (100, 250, 1000):
-            for acc in (10.0, 100.0, 500.0):
-                for jk in (50.0, 1000.0, 10000.0):
-                    for feed in (300.0, 1200.0, 3000.0):
-                        for dist in (0.5, 2.0, 20.0):
-                            for case, fn in cases.items():
-                                for jerk_on in ((True,) if '--jerk-only' in sys.argv else (True, False)):
-                                    dists = fn(dist)
-                                    recs = [None] + ([(len(dists) - 1, s) for s in range(0, 120, 9)] if RECALC and jerk_on else [])
-                                    for rc in recs:
-                                        r = run(z_moves(dists, feed, acc, jk, steps_mm, jerk_on), steps_mm, ticks, jerk=jerk_on, recalc_at=rc)
-                                        rows.append(dict(r, cfg=(steps_mm, ticks, acc, jk, feed, dist, case, jerk_on, rc)))
+    STEPS = [float(x) for x in next((a.split('=')[1] for a in sys.argv if a.startswith('--steps=')), '40,80,400,800').split(',')]
+    jobs = []
+    for steps_mm, ticks, acc, jk, feed, dist, case in itertools.product(STEPS, (100, 250, 1000), (10.0, 100.0, 500.0),
+                                                                        (50.0, 1000.0, 10000.0), (300.0, 1200.0, 3000.0),
+                                                                        (0.5, 2.0, 20.0), CASES):
+        for jerk_on in ((True,) if '--jerk-only' in sys.argv else (True, False)):
+            recs = [None] + ([(len(CASES[case](dist)) - 1, s) for s in range(0, 120, 9)] if RECALC and jerk_on else [])
+            jobs += [(steps_mm, ticks, acc, jk, feed, dist, case, jerk_on, rc) for rc in recs]
+    with Pool() as pool:
+        rows = pool.map(run_cfg, jobs, chunksize=16)
+    cases = CASES
     def summ(sel, label):
         if not sel:
             return
@@ -392,6 +446,54 @@ if __name__ == '__main__':
     worst = sorted([r for r in rows if r['cfg'][7]], key=lambda r: -r.get('term_dt', 0))[:8]
     for r in worst:
         print(f"  term={r.get('term_dt',0)*1e3:10.1f}ms crawl_mm={r['crawl_mm']:.3f} cfg={r['cfg']}")
+
+    print('\nSPEED SNAPS (executed step-rate jump beyond Amax*spacing + 1 step quantization)')
+    for jerk_on in (True, False):
+        sel = [r for r in rows if r['cfg'][7] == jerk_on]
+        if not sel:
+            continue
+        print(f"jerk {'ON ' if jerk_on else 'OFF'}: runs with snaps {sum(1 for r in sel if r['snaps'])}/{len(sel)}")
+        by = {}
+        for r in sel:
+            for s in r['snaps']:
+                by.setdefault(s['where'], []).append((s, r['cfg']))
+        for w, lst in sorted(by.items(), key=lambda kv: -len(kv[1])):
+            dv = np.array([s['dv'] for s, _ in lst])
+            rel = np.array([s['dv'] / (c[4] / 60.0) for s, c in lst])
+            ratio = np.array([s['ratio'] for s, _ in lst])
+            print(f'  {w:22s} n={len(lst):6d} dv mm/s med={np.median(dv):7.2f} p95={np.percentile(dv, 95):7.2f} max={dv.max():7.2f}'
+                  f' | %feed p95={100*np.percentile(rel, 95):5.1f} max={100*rel.max():5.1f} | x Amax p95={np.percentile(ratio, 95):7.1f}')
+        if '--snapcfg' in sys.argv:
+            allsn = sorted(((s, c) for lst in by.values() for s, c in lst), key=lambda sc: -sc[0]['dv'])[:12]
+            for s, c in allsn:
+                print(f"    dv={s['dv']:7.2f}mm/s x{s['ratio']:6.1f}Amax q={s['q']:6.2f} {s['where']:16s} cfg={c}")
+        for dim, idx in (('steps/mm', 0), ('ticks', 1), ('jerk', 3), ('case', 6)):
+            keys = sorted({r['cfg'][idx] for r in sel}, key=str)
+            print(f"   by {dim:8s}: " + '  '.join(f"{k}:{sum(1 for r in sel if r['cfg'][idx] == k and r['snaps'])}/{sum(1 for r in sel if r['cfg'][idx] == k)}" for k in keys))
+
+    print('\nSPEED SNAPS (executed step-rate jump beyond Amax*spacing + 1 step quantization)')
+    for jerk_on in (True, False):
+        sel = [r for r in rows if r['cfg'][7] == jerk_on]
+        if not sel:
+            continue
+        print(f"jerk {'ON ' if jerk_on else 'OFF'}: runs with snaps {sum(1 for r in sel if r['snaps'])}/{len(sel)}")
+        by = {}
+        for r in sel:
+            for s in r['snaps']:
+                by.setdefault(s['where'], []).append((s, r['cfg']))
+        for w, lst in sorted(by.items(), key=lambda kv: -len(kv[1])):
+            dv = np.array([s['dv'] for s, _ in lst])
+            rel = np.array([s['dv'] / (c[4] / 60.0) for s, c in lst])
+            ratio = np.array([s['ratio'] for s, _ in lst])
+            print(f'  {w:22s} n={len(lst):6d} dv mm/s med={np.median(dv):7.2f} p95={np.percentile(dv, 95):7.2f} max={dv.max():7.2f}'
+                  f' | %feed p95={100*np.percentile(rel, 95):5.1f} max={100*rel.max():5.1f} | x Amax p95={np.percentile(ratio, 95):7.1f}')
+        if '--snapcfg' in sys.argv:
+            allsn = sorted(((s, c) for lst in by.values() for s, c in lst), key=lambda sc: -sc[0]['dv'])[:12]
+            for s, c in allsn:
+                print(f"    dv={s['dv']:7.2f}mm/s x{s['ratio']:6.1f}Amax q={s['q']:6.2f} {s['where']:16s} cfg={c}")
+        for dim, idx in (('steps/mm', 0), ('ticks', 1), ('jerk', 3), ('case', 6)):
+            keys = sorted({r['cfg'][idx] for r in sel}, key=str)
+            print(f"   by {dim:8s}: " + '  '.join(f"{k}:{sum(1 for r in sel if r['cfg'][idx] == k and r['snaps'])}/{sum(1 for r in sel if r['cfg'][idx] == k)}" for k in keys))
     import json
-    json.dump([dict(cfg=r['cfg'], term=r.get('term_dt', 0), time=r['time']) for r in rows],
+    json.dump([dict(cfg=r['cfg'], term=r.get('term_dt', 0), time=r['time'], snaps=r['snaps']) for r in rows],
               open('result_' + ('fixed' if FIXED else 'orig') + ('_rc' if RECALC else '') + '.json', 'w'))
