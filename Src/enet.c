@@ -336,13 +336,13 @@ static void enet_poll (void *data)
     sys_check_timeouts();
     ethernetif_input(netif_default);
 
-    if(network_status.link_up) switch(++ms) {
 #if TELNET_ENABLE
-        case 1:
-            if(services.telnet)
-                telnetd_poll();
-            break;
+    // Every tick, so queued output (status reports) leaves within 1 ms
+    if(network_status.link_up && services.telnet)
+        telnetd_poll();
 #endif
+
+    if(network_status.link_up) switch(++ms) {
 #if WEBSOCKET_ENABLE
         case 2:
             if(services.websocket)

@@ -1,0 +1,1 @@
+"""Simulator-first trajectory components; units are millimeters and seconds."""

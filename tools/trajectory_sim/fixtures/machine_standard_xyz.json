@@ -1,0 +1,29 @@
+{
+  "_meta": {
+    "source": "Synthetic 'standard' router-class machine, 2026-10-10. Not a real machine; a moderate counterpart to machine_example_xyz.json for spectrum testing. Never use as platform defaults.",
+    "units_as_reported": "velocity mm/s, acceleration and deceleration mm/s^2, jerk mm/s^3 (same keys as machine_example_xyz.json)",
+    "design": [
+      "Deceleration within 25% of acceleration (example machine: 10x lower).",
+      "Rest to full speed in hundreds of milliseconds: X/Y 200 mm/s at 1500 mm/s^2, J 30000 -> ~0.18 s; Z 50 mm/s at 800 mm/s^2, J 20000 -> ~0.10 s.",
+      "All axes accelerationProfile 2 (S-curve); profile-0 variants are derived in tests/machines.py."
+    ]
+  },
+  "axisX": {
+    "axisDesignation": 0, "name": "X Axis", "isActive": true, "motionType": 0,
+    "maximumVelocity": 200.0, "maximumAcceleration": 1500.0, "maximumDeceleration": 1200.0,
+    "stepsPerMillimeterOrRevolution": 200.0,
+    "accelerationProfile": 2, "accelerationJerk": 30000.0, "decelerationJerk": 30000.0
+  },
+  "axisY": {
+    "axisDesignation": 1, "name": "Y Axis", "isActive": true, "motionType": 0,
+    "maximumVelocity": 200.0, "maximumAcceleration": 1200.0, "maximumDeceleration": 1000.0,
+    "stepsPerMillimeterOrRevolution": 200.0,
+    "accelerationProfile": 2, "accelerationJerk": 25000.0, "decelerationJerk": 25000.0
+  },
+  "axisZ": {
+    "axisDesignation": 2, "name": "Z Axis", "isActive": true, "motionType": 0,
+    "maximumVelocity": 50.0, "maximumAcceleration": 800.0, "maximumDeceleration": 800.0,
+    "stepsPerMillimeterOrRevolution": 400.0,
+    "accelerationProfile": 2, "accelerationJerk": 20000.0, "decelerationJerk": 20000.0
+  }
+}

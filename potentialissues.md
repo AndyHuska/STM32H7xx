@@ -113,6 +113,12 @@ Units inside grbl are mm, mm/min, mm/min², mm/min³ and min.
 
 # Potential issues – other
 
+## 14. Per-axis deceleration ($81x) is stored but never used
+`grbl/settings.c`: `Setting_AxisDeceleration` ($810-$817) and `settings_get_deceleration()` exist, but nothing calls the getter.
+- **Effect:** braking always uses $12x acceleration. A machine configured with a lower deceleration (e.g. the example machine's $810 = 40.2 vs $120 = 400) brakes 10x harder than configured, and planner stopping distances ignore $81x.
+- **Also:** grblHAL has no per-axis profile type. With `ENABLE_JERK_ACCELERATION`, every axis is jerk-limited by $80x, so a host setting of "trapezoidal" for Z is not honoured.
+- **Fix direction:** the new trajectory design supports asymmetric limits (`Limits.deceleration`, tools/trajectory_sim/DESIGN.md section 7); wire $81x into its constraint projection rather than retrofitting the legacy planner.
+
 ## 13. `G64 P!` stops motion and the controller stops replying (no hard fault)
 - **Observed:** sending `G64 P!` immediately stopped motion. After that, the controller no longer replied to commands. It did not hard fault.
 - **What the parser sees:** `!` is the legacy feed-hold realtime character. `protocol.c` removes it and raises `EXEC_FEED_HOLD`, so the parser receives `G64P`. `P` has no value, so the generic word reader rejects the block (`ngc_read_real_value()` → `Status_ExpressionSyntaxError`) before any `G64` code runs.

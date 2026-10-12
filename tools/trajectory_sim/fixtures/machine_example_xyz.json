@@ -1,0 +1,48 @@
+{
+  "_meta": {
+    "source": "User-supplied host axis settings, 2026-10-09. One machine only; the platform is general purpose, so never use these as defaults.",
+    "units_as_reported": "velocity mm/s, acceleration and deceleration mm/s^2, jerk mm/s^3; identical to controller $11x/60, $12x, $81x, $80x (see machine_example_settings.txt)",
+    "motionType": "0 = linear with limits (not rotary/unbounded)",
+    "accelerationProfile": "0 = constant acceleration (trapezoidal velocity), 1 = sine velocity (out of scope), 2 = trapezoidal acceleration (S-curve velocity)",
+    "verified": true,
+    "notes": [
+      "Deceleration is deliberately asymmetric; the 10x lower X/Y value was an extreme test of the algorithm.",
+      "Values were entered from inch/min figures (x25.4/60); they are what the firmware actually uses.",
+      "Firmware has no per-axis profile type: with ENABLE_JERK_ACCELERATION every axis, including Z, is jerk-limited by $80x."
+    ],
+    "open_questions": [
+      "accelerationJerk vs decelerationJerk: which phases use which (by sign of acceleration, or speeding up vs slowing down). Equal here; firmware has one jerk per axis."
+    ],
+    "context": "Occasional slow final move: two collinear Z moves, the second too short to reach max acceleration or velocity. Regression input only; general correctness is the goal."
+  },
+  "axisX": {
+    "axisDesignation": 0, "axisPort": 0, "name": "X Axis", "isActive": true, "motionType": 0,
+    "maximumVelocity": 169.33333333333334, "maximumAcceleration": 400.0, "maximumDeceleration": 40.216666666666661,
+    "homingGroup": 0, "softLimitsActive": true, "positiveSoftLimit": 798.4, "negativeSoftLimit": 0.0,
+    "initialHomingVelocity": 25.370833333333334, "slowHomingVelocity": 1.2793333333333334,
+    "homeInput": 0, "limitInput": 1, "errorInput": 2, "stepOutput": 0, "directionOutput": 0, "enableOutput": 0,
+    "stepsPerMillimeterOrRevolution": 100.0, "minimumOverlap": 0.0, "maximumOverlap": 0.0,
+    "accelerationProfile": 2, "accelerationJerk": 21.166666666666668, "decelerationJerk": 21.166666666666668,
+    "positionalOffset": -463.93
+  },
+  "axisY": {
+    "axisDesignation": 1, "axisPort": 1, "name": "Y Axis", "isActive": true, "motionType": 0,
+    "maximumVelocity": 169.33333333333334, "maximumAcceleration": 400.0, "maximumDeceleration": 40.166713333333334,
+    "homingGroup": 0, "softLimitsActive": true, "positiveSoftLimit": 524.74, "negativeSoftLimit": 0.0,
+    "initialHomingVelocity": 23.744000000000003, "slowHomingVelocity": 1.1853333333333333,
+    "homeInput": 0, "limitInput": 1, "errorInput": 2, "stepOutput": 0, "directionOutput": 0, "enableOutput": 0,
+    "stepsPerMillimeterOrRevolution": 100.0, "minimumOverlap": 0.0, "maximumOverlap": 0.0,
+    "accelerationProfile": 2, "accelerationJerk": 21.166666666666668, "decelerationJerk": 21.166666666666668,
+    "positionalOffset": -73.76
+  },
+  "axisZ": {
+    "axisDesignation": 2, "axisPort": 2, "name": "Z Axis", "isActive": true, "motionType": 0,
+    "maximumVelocity": 99.999833333333328, "maximumAcceleration": 999.99, "maximumDeceleration": 1000.0001666666667,
+    "homingGroup": 0, "softLimitsActive": true, "positiveSoftLimit": 89.92, "negativeSoftLimit": 0.0,
+    "initialHomingVelocity": 12.17, "slowHomingVelocity": 1.2598333333333334,
+    "homeInput": 0, "limitInput": 1, "errorInput": 2, "stepOutput": 0, "directionOutput": 1, "enableOutput": 0,
+    "stepsPerMillimeterOrRevolution": 100.0, "minimumOverlap": 0.0, "maximumOverlap": 0.0,
+    "accelerationProfile": 0, "accelerationJerk": 423.33, "decelerationJerk": 423.33,
+    "positionalOffset": -89.92
+  }
+}
