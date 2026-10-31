@@ -67,11 +67,13 @@ G61, G61_1 = "G61", "G61.1"
 
 @dataclass(frozen=True)
 class FirmwareMove:
-    """G1 move to `end`; `control` is G61, G61.1 or the G64 P value (mm, > 0)."""
+    """G1 move to `end`; `stop_after` stops at its exit without forcing an entry stop."""
 
     end: Vector
     feed: float
     control: str | float
+    stop_after: bool = False
+    blend_k: float | None = None
 
 
 @dataclass
@@ -126,6 +128,10 @@ def _unit(a):
     return _scale(1.0 / _norm(a), a)
 
 
+def _cross(a, b):
+    return (a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0])
+
+
 @dataclass
 class FirmwareModel:
     axes: Sequence[Limits]
@@ -137,6 +143,8 @@ class FirmwareModel:
     # Firmware line blocks take direction and length from integer step targets (pl.position); arcs from floats.
     steps_per_mm: Sequence[float] | None = None
     tangent_blend_junctions: bool = False   # FW-4: joins into/out of a blend arc are tangent by construction
+    # G64 K (FW-5): size the arc as the smallest one the feed crosses at centripetal K * A_plane; 0 = largest within P.
+    blend_k: float = 0.0
     blocks: list[Block] = field(default_factory=list)
     corners: list[Corner] = field(default_factory=list)
 
@@ -146,6 +154,7 @@ class FirmwareModel:
         self._previous_unit: Vector | None = None
         self._previous_nominal = 0.0
         self._previous_exact_stop = False
+        self._previous_stop_after = False
         self._previous_arc = False
         self._steps = self._to_steps(self.start)
         self._source = -1
@@ -159,9 +168,12 @@ class FirmwareModel:
         candidate = not isinstance(move.control, str) and move.control > 0.0
         if candidate:
             if self._pending is not None:
-                if self._resolve_corner(move):
+                if self._pending[2].stop_after:
+                    self._flush("stop_after")
+                elif self._resolve_corner(move):
                     return
-                self._flush("no_corner")
+                else:
+                    self._flush("no_corner")
             self._pending = (self._position, move.end, move, self._source)
             return
         self._flush("forced")
@@ -196,6 +208,15 @@ class FirmwareModel:
             return False
         bisector = _unit(bisector)
         radius = tolerance / (1.0 / sin_half - 1.0)
+        blend_k = self.blend_k if move.blend_k is None else move.blend_k
+        if blend_k > 0.0:
+            k = min(blend_k, self.arc_k if self.arc_limits in ("circle", "adaptive") else 0.5)
+            normal = _cross(t_in, t_out)
+            n_length = _norm(normal)
+            shares = [math.sqrt(max(0.0, 1.0 - (n / n_length) ** 2)) for n in normal]
+            plane_accel = min(axis.acceleration / s for s, axis in zip(shares, self.axes) if s > 1e-6)
+            feed = min(move.feed, pending.feed)
+            radius = min(radius, feed * feed / (k * plane_accel))
         trim = radius / math.tan(0.5 * theta)
         if trim > 0.5 * min(len_in, len_out):
             trim = 0.5 * min(len_in, len_out)
@@ -227,14 +248,16 @@ class FirmwareModel:
             target = self._to_steps(end)
             delta = tuple((t - p) / k for t, p, k in zip(target, self._steps, self.steps_per_mm))
             if not any(t != p for t, p in zip(target, self._steps)):
+                self._previous_stop_after = move.stop_after
                 return
             self._steps = target
         length = _norm(delta)
         if length <= 0.0:
+            self._previous_stop_after = move.stop_after
             return
         unit = _scale(1.0 / length, delta)
         self._append(Block(source, "line", start, end, length, 0.0, self._accel(unit), 0.0, unit, unit),
-                     move.feed, self._rate(unit), move.control == G61_1)
+                     move.feed, self._rate(unit), move.control == G61_1, move.stop_after)
 
     def _plan_arc(self, start, end, center, radius, sweep, t_start, t_end, move: FirmwareMove, source: int) -> None:
         if self.arc_limits in ("planar", "circle", "adaptive"):
@@ -261,7 +284,8 @@ class FirmwareModel:
             self._steps = self._to_steps(end)
         self._append(block, min(move.feed, rate), rate, False)
 
-    def _append(self, block: Block, programmed: float, rate: float, exact_stop: bool) -> None:
+    def _append(self, block: Block, programmed: float, rate: float, exact_stop: bool,
+                stop_after: bool = False) -> None:
         block.nominal = max(MINIMUM_FEED_RATE, min(programmed, rate))
         if self._previous_unit is None:
             junction_sqr = 0.0
@@ -278,12 +302,13 @@ class FirmwareModel:
                                    junction_accel * self.junction_deviation * sin_d2 / (1.0 - sin_d2))
             if self.tangent_blend_junctions and (block.kind == "arc" or self._previous_arc):
                 junction_sqr = math.inf
-            if exact_stop or self._previous_exact_stop:
+            if exact_stop or self._previous_exact_stop or self._previous_stop_after:
                 junction_sqr = 0.0
         block.max_entry_sqr = min(min(block.nominal, self._previous_nominal) ** 2, junction_sqr)
         self._previous_nominal = block.nominal
         self._previous_unit = block.end_dir
         self._previous_exact_stop = exact_stop
+        self._previous_stop_after = stop_after
         self._previous_arc = block.kind == "arc"
         self._position = block.end
         self.blocks.append(block)

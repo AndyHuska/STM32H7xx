@@ -41,6 +41,17 @@ def phase_plane_time(model, nodes_per_block=4000):
 
 
 class FirmwareModelTests(unittest.TestCase):
+    def test_per_move_k_uses_incoming_command_and_zero_overrides_default(self):
+        for incoming_k, expected_radius in ((None, 900.0 / (0.5 * 800.0)),
+                                             (0.8, 900.0 / (0.8 * 800.0)),
+                                             (1.0, 900.0 / (0.9 * 800.0)),
+                                             (0.0, 3.0 / (math.sqrt(2.0) - 1.0))):
+            with self.subTest(k=incoming_k):
+                moves = [FirmwareMove((20.0, 0.0, 0.0), 40.0, 3.0, blend_k=0.1),
+                         FirmwareMove((20.0, 20.0, 0.0), 30.0, 3.0, blend_k=incoming_k)]
+                model = run(AXES, moves, arc_limits="adaptive", arc_k=0.9, blend_k=0.5)
+                self.assertAlmostEqual(model.corners[0].radius, expected_radius, delta=1e-12)
+
     def test_single_line_is_a_trapezoid(self):
         for end, feed in (((20.0, 0.0, 0.0), 100.0), ((3.0, 4.0, 0.0), 1e4), ((0.0, 0.0, 0.5), 100.0)):
             model = run(AXES, [FirmwareMove(end, feed, 1.0)])
@@ -141,6 +152,22 @@ class FirmwareModelTests(unittest.TestCase):
                 self.assertLessEqual(w * w, forward[-1] * (1 + 1e-9))
                 self.assertAlmostEqual(duration, direct, delta=1e-6 * duration)
 
+    def test_blend_k_makes_p_a_maximum(self):
+        """G64 K (FW-5): 90 deg XY corner, F30, P3. The arc plane is XY (normal Z), so A_plane = min(A_x, A_y) = 800
+        and the feed-sized radius is F^2 / (K A_plane): K0.5 -> 900 / 400 = 2.25 mm < R_P = 3 / (sqrt2 - 1) = 7.24 mm.
+        K0 keeps R_P; K above the cruise cap (k_max 0.9) is clamped to it. The arc still runs at the full feed."""
+        p, feed = 3.0, 30.0
+        moves = [FirmwareMove((20.0, 0.0, 0.0), feed, p), FirmwareMove((20.0, 20.0, 0.0), feed, p)]
+        r_p = p / (math.sqrt(2.0) - 1.0)
+        for k, radius in ((0.0, r_p), (0.5, feed ** 2 / (0.5 * 800.0)), (1.0, feed ** 2 / (0.9 * 800.0))):
+            model = run(AXES, moves, arc_limits="adaptive", arc_k=0.9, blend_k=k)
+            corner = model.corners[0]
+            with self.subTest(k=k):
+                self.assertAlmostEqual(corner.radius, radius, delta=1e-12 * radius)
+                self.assertAlmostEqual(corner.deviation, radius * (math.sqrt(2.0) - 1.0), delta=1e-12)
+                self.assertLessEqual(corner.deviation, p * (1 + 1e-12))
+                self.assertGreaterEqual(min(b.nominal for b in model.blocks if b.kind == "arc"), feed * (1 - 1e-12))
+
     def test_trim_clamped_to_half_the_shorter_leg(self):
         model = run(AXES, [FirmwareMove((2.0, 0.0, 0.0), 100.0, 3.0), FirmwareMove((2.0, 10.0, 0.0), 100.0, 3.0)])
         corner = model.corners[0]
@@ -164,6 +191,19 @@ class FirmwareModelTests(unittest.TestCase):
         reversal = run(AXES, [FirmwareMove((20.0, 0.0, 0.0), 100.0, 1.0), FirmwareMove((5.0, 0.0, 0.0), 100.0, 1.0)])
         self.assertEqual([b.kind for b in reversal.blocks], ["line", "line"])
         self.assertEqual(reversal.blocks[1].max_entry_sqr, 0.0)
+
+    def test_stop_after_stops_at_exit_without_stopping_at_entry(self):
+        moves = [FirmwareMove((10.0, 0.0, 0.0), 100.0, 0.5),
+                 FirmwareMove((20.0, 0.0, 0.0), 100.0, 0.5, stop_after=True),
+                 FirmwareMove((30.0, 0.0, 0.0), 100.0, 0.5)]
+
+        model = run(AXES, moves, junction_deviation=0.0)
+        schedule = model.schedule()
+
+        self.assertEqual([block.source for block in model.blocks], [0, 1, 2])
+        self.assertGreater(schedule[1][0], 0.0)
+        self.assertAlmostEqual(schedule[1][1], 0.0, delta=1e-12)
+        self.assertAlmostEqual(schedule[2][0], 0.0, delta=1e-12)
 
     def test_planner_matches_independent_phase_plane_integration(self):
         """Backward/forward planner + trapezoids vs a fine-grid phase-plane sweep (unlimited window): the

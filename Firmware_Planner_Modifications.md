@@ -187,6 +187,31 @@ Stepper impact (`st_prep_buffer`): ramp distances on arc blocks come from the sa
 speed never leaves the circle (segment timing is approximated, the acceleration bound is not). The model has
 not yet characterised that segment discretisation.
 
+### FW-5: G64 K - P is a maximum, arcs sized for the feed (implemented 2026-10-14)
+Problem (user, hardware): the blend radius was fixed by P, R_P = P / (1/sin(theta/2) - 1) (deviation always = P),
+clamped only by half the shorter leg. A constant-radius arc is crossed at feed F once R >= F^2 / (k A_plane), so
+any larger arc adds deviation without adding speed. Nearly collinear chains get huge R_P and the full deviation P.
+
+Change: optional K word, `G64 P<p> K<k>` (0 <= K <= 1; omitted -> setting `$781` "G64 blend K", default
+`DEFAULT_PATH_BLEND_K` = 0, stored next to `$780` in `settings.reserved` [5..8] under marker 0xA6; settings
+saved with only `$780` (marker 0xA5) keep working and read K as the default):
+`R = min(R_P, R_trim, F^2 / (K A_plane))` in `blend_resolve_corner()`, F = min(feed of both moves) (programmed,
+not overridden; skipped in G93 inverse time), A_plane as in FW-1 from the corner normal. K is the centripetal
+share used at feed (smaller K = larger, gentler arcs and a smaller lateral step at the arc entry; larger K =
+smaller deviation). K is capped at the arc cruise share (k_max with FW-2, 0.5 otherwise) so the arc never limits
+the speed below the feed. K0 = previous behaviour (largest arc within P). `K` is taken by G64 unless a G2/G3
+in the same block uses it as the arc centre offset. Files: config.h, gcode.h/.c, planner.h (plan_line_data_t),
+motion_control.c. Model: `firmware_model(blend_k=...)`; test `test_blend_k_makes_p_a_maximum` (hand-derived).
+
+Implications: deviation <= P always; cycle time unchanged within rounding (arcs are still crossed at feed; the
+slightly longer path of a smaller arc costs microseconds); the same corner gets a smaller radius at lower feed;
+with feed override > 100% corners slow to the arc cap (arcs are sized at the programmed feed); lateral
+acceleration at feed rises to K A_plane. Measured on the hardware routines (machine_example, F57.15): pocket
+unchanged (90 deg corners are tolerance-limited: R_feed = 9 mm at K0.9 > R_P); x_chain at P0.1-P1: same time
+(1.246 s), mean deviation 0.0126 -> 0.0046 mm (K0.6) / 0.0031 mm (K0.9). The max over corners need not drop:
+a smaller trim at one corner leaves a longer leg, so the next corner's half-leg clamp allows a larger arc
+(still <= P and <= the feed size).
+
 ## Candidates (to quantify next)
 - FW-2b: superseded by FW-2 adaptive.
 - FW-3: blend-or-stop decision: skip the arc where it is slower than an exact stop (cheap local estimate).
